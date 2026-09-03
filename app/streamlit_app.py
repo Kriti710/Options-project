@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, datetime
 
+import psycopg
+import streamlit as st
+
 from app.charts import plotly_smile_figure
 from app.models import RepositoryUnavailable, SnapshotRepository
 from app.presentation import (
@@ -20,6 +23,9 @@ from app.presentation import (
     selectable_contracts,
     status_counts,
 )
+from app.storage_adapter import StorageReaderAdapter
+from nifty_vol.settings import MissingConfigurationError, ReaderEnvironmentConfig
+from nifty_vol.storage import SnapshotRepository as DatabaseSnapshotRepository
 
 DISCLAIMER = (
     "Educational analytics only — not investment advice, a trading signal, "
@@ -28,14 +34,68 @@ DISCLAIMER = (
 )
 
 
+class MissingReaderConfiguration(RepositoryUnavailable):
+    """Reader credentials were not supplied by either supported source."""
+
+
+class ReaderDatabaseUnavailable(RepositoryUnavailable):
+    """The configured reader database could not be opened or queried."""
+
+
 class UnconfiguredRepository:
     """Safe default: explicit failure instead of fetching from NSE."""
 
     def list_completed_snapshots(self) -> Sequence:
-        raise RepositoryUnavailable("Snapshot repository is not configured.")
+        raise MissingReaderConfiguration
 
     def get_completed_snapshot(self, snapshot_id: str):
-        raise RepositoryUnavailable("Snapshot repository is not configured.")
+        raise MissingReaderConfiguration
+
+
+class UnavailableRepository:
+    """Safe failure boundary that never carries connection diagnostics."""
+
+    def list_completed_snapshots(self) -> Sequence:
+        raise ReaderDatabaseUnavailable
+
+    def get_completed_snapshot(self, snapshot_id: str):
+        raise ReaderDatabaseUnavailable
+
+
+def _connection_is_open(connection) -> bool:
+    return not connection.closed
+
+
+def _close_connection(connection) -> None:
+    connection.close()
+
+
+def _open_reader_connection(database_url: str):
+    return psycopg.connect(
+        database_url,
+        autocommit=True,
+        options="-c default_transaction_read_only=on",
+    )
+
+
+@st.cache_resource(
+    show_spinner=False,
+    validate=_connection_is_open,
+    scope="session",
+    on_release=_close_connection,
+)
+def _cached_reader_connection(_database_url: str):
+    """Create a cached read-only, autocommit PostgreSQL connection."""
+
+    return _open_reader_connection(_database_url)
+
+
+def configured_repository(*, st_module=st) -> SnapshotRepository:
+    """Compose the reader from local env or Streamlit-managed secrets."""
+
+    settings = ReaderEnvironmentConfig.from_sources(secrets=st_module.secrets)
+    connection = _cached_reader_connection(settings.reader_database_url)
+    return StorageReaderAdapter(DatabaseSnapshotRepository(connection))
 
 
 def _snapshot_label(summary) -> str:
@@ -139,8 +199,15 @@ def render(repository: SnapshotRepository, *, st_module=None) -> None:
             key=lambda item: require_aware_utc(item.captured_at),
             reverse=True,
         )
-    except Exception as exc:
-        st.error(f"Data could not be loaded: {exc}")
+    except MissingReaderConfiguration:
+        st.error("Reader database is not configured.")
+        st.info(
+            "Set READER_DATABASE_URL locally or in Streamlit secrets. "
+            "No request was made to NSE."
+        )
+        return
+    except Exception:
+        st.error("Data could not be loaded. The snapshot database is unavailable.")
         st.info(
             "No request was made to NSE. Try again after the snapshot repository "
             "recovers."
@@ -182,8 +249,8 @@ def render(repository: SnapshotRepository, *, st_module=None) -> None:
             if comparison_summary is not None
             else None
         )
-    except Exception as exc:
-        st.error(f"The selected snapshot failed to load: {exc}")
+    except Exception:
+        st.error("The selected snapshot could not be loaded from the database.")
         st.info("Select another completed snapshot or try again later.")
         return
 
@@ -229,9 +296,21 @@ def render(repository: SnapshotRepository, *, st_module=None) -> None:
     st.caption(DISCLAIMER)
 
 
-def main(repository: SnapshotRepository | None = None) -> None:
+def main(
+    repository: SnapshotRepository | None = None,
+    *,
+    st_module=st,
+) -> None:
     """Application composition hook for Streamlit deployments."""
-    render(repository or UnconfiguredRepository())
+
+    if repository is None:
+        try:
+            repository = configured_repository(st_module=st_module)
+        except MissingConfigurationError:
+            repository = UnconfiguredRepository()
+        except Exception:
+            repository = UnavailableRepository()
+    render(repository, st_module=st_module)
 
 
 if __name__ == "__main__":  # pragma: no cover

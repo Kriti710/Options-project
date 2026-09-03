@@ -38,12 +38,15 @@ def main() -> None:
     except ImportError as exc:  # pragma: no cover - packaging failure
         raise RuntimeError("psycopg is required by the collector CLI") from exc
 
-    with psycopg.connect(settings.database_url) as connection:
-        snapshot_id = collect_once(
-            NSEClient(settings.collector),
-            SnapshotRepository(connection),
-            settings.pipeline,
-        )
+    try:
+        with psycopg.connect(settings.collector_database_url) as connection:
+            snapshot_id = collect_once(
+                NSEClient(settings.collector),
+                SnapshotRepository(connection),
+                settings.pipeline,
+            )
+    except psycopg.Error:
+        raise RuntimeError("collector database operation failed") from None
     print(snapshot_id)
 
 

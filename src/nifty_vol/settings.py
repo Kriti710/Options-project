@@ -10,6 +10,10 @@ from .collector import CollectorConfig
 from .pipeline import PipelineConfig
 
 
+class MissingConfigurationError(ValueError):
+    """A required setting is absent without exposing any configured value."""
+
+
 def _float(values: Mapping[str, str], name: str, default: float | None = None) -> float:
     raw = values.get(name)
     if raw is None or raw == "":
@@ -36,7 +40,7 @@ def _int(values: Mapping[str, str], name: str, default: int) -> int:
 class EnvironmentConfig:
     """Runtime configuration shared by one-shot collector composition."""
 
-    database_url: str
+    collector_database_url: str
     collector: CollectorConfig
     pipeline: PipelineConfig
 
@@ -45,9 +49,9 @@ class EnvironmentConfig:
         cls, environ: Mapping[str, str] | None = None
     ) -> EnvironmentConfig:
         values = os.environ if environ is None else environ
-        database_url = values.get("DATABASE_URL", "").strip()
+        database_url = values.get("COLLECTOR_DATABASE_URL", "").strip()
         if not database_url:
-            raise ValueError("DATABASE_URL is required")
+            raise MissingConfigurationError("COLLECTOR_DATABASE_URL is required")
         collector = CollectorConfig(
             base_url=values.get("NSE_BASE_URL", "https://www.nseindia.com"),
             symbol=values.get("NSE_SYMBOL", "NIFTY"),
@@ -80,3 +84,30 @@ class EnvironmentConfig:
             maximum_iterations=_int(values, "IV_SOLVER_MAX_ITERATIONS", 200),
         )
         return cls(database_url, collector, pipeline)
+
+
+@dataclass(frozen=True, slots=True)
+class ReaderEnvironmentConfig:
+    """Read-only reader configuration from local env or Streamlit secrets."""
+
+    reader_database_url: str
+
+    @classmethod
+    def from_sources(
+        cls,
+        *,
+        environ: Mapping[str, str] | None = None,
+        secrets: Mapping[str, object] | None = None,
+    ) -> ReaderEnvironmentConfig:
+        values = os.environ if environ is None else environ
+        database_url = values.get("READER_DATABASE_URL", "").strip()
+        if not database_url and secrets is not None:
+            try:
+                secret_value = secrets.get("READER_DATABASE_URL", "")
+            except Exception:
+                secret_value = ""
+            if isinstance(secret_value, str):
+                database_url = secret_value.strip()
+        if not database_url:
+            raise MissingConfigurationError("READER_DATABASE_URL is required")
+        return cls(database_url)
