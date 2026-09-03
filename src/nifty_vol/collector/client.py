@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import Message
 from http.cookiejar import CookieJar
-from typing import Callable, Mapping, Protocol
+from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
@@ -68,7 +69,7 @@ class NSEClient:
         transport_factory: Callable[[], Transport] = UrllibTransport,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
-        now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.config = config or CollectorConfig()
         self._transport_factory = transport_factory

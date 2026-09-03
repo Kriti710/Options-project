@@ -67,8 +67,9 @@ value.
   solver tolerance, volatility bounds, iteration limits, and collection pacing.
 - Persist or otherwise identify the effective threshold set with a snapshot so
   exclusions and results can be reproduced. Count exclusions by status.
-- A solver success must satisfy the configured price tolerance; the initial
-  target tolerance is `1e-6`.
+- A solver success must satisfy both the configured repricing-error tolerance
+  and the configured remaining volatility-interval tolerance. The initial
+  targets are `1e-6` price units and `1e-8` decimal volatility respectively.
 
 ## Snapshot atomicity
 

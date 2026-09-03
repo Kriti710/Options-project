@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Sequence
 
 from app.charts import plotly_smile_figure
 from app.models import RepositoryUnavailable, SnapshotRepository
@@ -219,7 +219,7 @@ def render(repository: SnapshotRepository, *, st_module=None) -> None:
         if chart.atm_iv is None:
             st.warning("A near-forward ATM-IV reference could not be calculated.")
         else:
-            anchor = snapshot.forward if snapshot.forward is not None else snapshot.spot
+            anchor = snapshot.forward_for(primary_expiry)
             st.caption(
                 f"Reference: average call/put IV at strike {chart.atm_strike:,.0f}, "
                 f"the listed strike nearest the forward ({anchor:,.2f})."

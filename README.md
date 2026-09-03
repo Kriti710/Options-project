@@ -1,11 +1,8 @@
 # NIFTY implied-volatility explorer
 
-Initial Python foundation for an analytical application that will collect NIFTY
-option-chain snapshots, derive implied volatility and Greeks, persist atomic
-snapshots, and present them through a separate reader.
-
-This repository is currently a scaffold only. It contains no market-data,
-pricing, persistence, or user-interface implementation.
+An analytical application that collects NIFTY option-chain snapshots, derives
+implied volatility and Greeks, persists atomic snapshots, and presents them
+through a separate reader.
 
 ## Structure
 
@@ -14,7 +11,8 @@ src/nifty_vol/
   domain/       Pricing and volatility domain boundary
   collector/    NSE collection boundary
   storage/      Snapshot persistence boundary
-app/            Reader application entry points (future)
+  pipeline.py   Offline quote-to-observation application pipeline
+app/            Streamlit reader and storage adapter
 tests/
   domain/
   collector/fixtures/
@@ -40,6 +38,20 @@ python -m pip install -e ".[dev]"
 Copy `.env.example` to `.env` and provide local values when implementation
 begins. Never commit the populated file.
 
+## One-shot collection
+
+After applying the migrations and configuring `.env` values in the process
+environment, run one collection with:
+
+```powershell
+nifty-vol-collect
+```
+
+Scheduling is deliberately external to the command. It performs one fetch and
+one atomic snapshot write, then exits. The reader uses
+`app.storage_adapter.StorageReaderAdapter` to project completed storage
+snapshots; it never contacts NSE.
+
 ## Validation
 
 ```powershell
@@ -47,6 +59,3 @@ python -m compileall -q src
 python -m pytest
 python -m ruff check .
 ```
-
-An empty test suite is expected at this foundation stage; tests will be added
-alongside application behavior.

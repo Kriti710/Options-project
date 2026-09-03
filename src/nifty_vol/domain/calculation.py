@@ -58,6 +58,7 @@ class ImpliedVolatilityResult:
     failure: CalculationFailure | None
     iterations: int
     price_error: float | None
+    volatility_interval_width: float | None
 
     @property
     def succeeded(self) -> bool:
@@ -72,6 +73,7 @@ class CalculationResult:
     failure: CalculationFailure | None
     iterations: int
     price_error: float | None
+    volatility_interval_width: float | None
 
     @property
     def succeeded(self) -> bool:
@@ -157,6 +159,7 @@ def implied_volatility(
     market_price: float,
     option_type: OptionType | str,
     price_tolerance: float = 1e-6,
+    volatility_tolerance: float = 1e-8,
     min_volatility: float = 1e-8,
     max_volatility: float = 5.0,
     max_iterations: int = 200,
@@ -170,6 +173,7 @@ def implied_volatility(
             failure=CalculationFailure.NON_FINITE_INPUT,
             iterations=0,
             price_error=None,
+            volatility_interval_width=None,
         )
     validation = validate_market_price(
         S=S,
@@ -188,14 +192,21 @@ def implied_volatility(
             failure=validation.failure,
             iterations=0,
             price_error=None,
+            volatility_interval_width=None,
         )
-    config_values = (price_tolerance, min_volatility, max_volatility)
+    config_values = (
+        price_tolerance,
+        volatility_tolerance,
+        min_volatility,
+        max_volatility,
+    )
     config_valid = (
         all(
             isinstance(value, (int, float)) and math.isfinite(value)
             for value in config_values
         )
         and price_tolerance > 0.0
+        and volatility_tolerance > 0.0
         and min_volatility > 0.0
         and max_volatility > min_volatility
         and isinstance(max_iterations, int)
@@ -209,6 +220,7 @@ def implied_volatility(
             failure=CalculationFailure.INVALID_SOLVER_CONFIGURATION,
             iterations=0,
             price_error=None,
+            volatility_interval_width=None,
         )
 
     def error(volatility: float) -> float:
@@ -221,14 +233,6 @@ def implied_volatility(
     high = max_volatility
     low_error = error(low)
     high_error = error(high)
-    if abs(low_error) <= price_tolerance:
-        return ImpliedVolatilityResult(
-            CalculationStatus.CALCULATED, low, None, 0, low_error
-        )
-    if abs(high_error) <= price_tolerance:
-        return ImpliedVolatilityResult(
-            CalculationStatus.CALCULATED, high, None, 0, high_error
-        )
     if low_error > 0.0 or high_error < 0.0:
         nearest_error = low_error if abs(low_error) < abs(high_error) else high_error
         return ImpliedVolatilityResult(
@@ -237,6 +241,7 @@ def implied_volatility(
             CalculationFailure.VOLATILITY_NOT_BRACKETED,
             0,
             nearest_error,
+            high - low,
         )
 
     middle = low
@@ -244,20 +249,32 @@ def implied_volatility(
     for iteration in range(1, max_iterations + 1):
         middle = low + (high - low) / 2.0
         middle_error = error(middle)
-        if abs(middle_error) <= price_tolerance:
-            return ImpliedVolatilityResult(
-                CalculationStatus.CALCULATED, middle, None, iteration, middle_error
-            )
-        if middle_error < 0.0:
+        if middle_error == 0.0:
+            low = high = middle
+        elif middle_error < 0.0:
             low = middle
         else:
             high = middle
+        interval_width = high - low
+        if (
+            abs(middle_error) <= price_tolerance
+            and interval_width <= volatility_tolerance
+        ):
+            return ImpliedVolatilityResult(
+                CalculationStatus.CALCULATED,
+                middle,
+                None,
+                iteration,
+                middle_error,
+                interval_width,
+            )
     return ImpliedVolatilityResult(
         CalculationStatus.SOLVER_DID_NOT_CONVERGE,
         None,
         CalculationFailure.ITERATION_LIMIT_REACHED,
         max_iterations,
         middle_error,
+        high - low,
     )
 
 
@@ -271,6 +288,7 @@ def calculate_option(
     market_price: float,
     option_type: OptionType | str,
     price_tolerance: float = 1e-6,
+    volatility_tolerance: float = 1e-8,
     min_volatility: float = 1e-8,
     max_volatility: float = 5.0,
     max_iterations: int = 200,
@@ -286,13 +304,20 @@ def calculate_option(
         market_price=market_price,
         option_type=option_type,
         price_tolerance=price_tolerance,
+        volatility_tolerance=volatility_tolerance,
         min_volatility=min_volatility,
         max_volatility=max_volatility,
         max_iterations=max_iterations,
     )
     if not iv.succeeded:
         return CalculationResult(
-            iv.status, None, None, iv.failure, iv.iterations, iv.price_error
+            iv.status,
+            None,
+            None,
+            iv.failure,
+            iv.iterations,
+            iv.price_error,
+            iv.volatility_interval_width,
         )
     greeks = black_scholes_greeks(
         S=S,
@@ -304,5 +329,11 @@ def calculate_option(
         option_type=option_type,
     )
     return CalculationResult(
-        iv.status, iv.volatility, greeks, None, iv.iterations, iv.price_error
+        iv.status,
+        iv.volatility,
+        greeks,
+        None,
+        iv.iterations,
+        iv.price_error,
+        iv.volatility_interval_width,
     )

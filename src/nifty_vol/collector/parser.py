@@ -1,6 +1,6 @@
 """Strict conversion of NSE option-chain JSON to normalized raw records."""
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -39,7 +39,7 @@ def _expiry(value: Any) -> datetime:
     except ValueError as exc:
         raise SchemaError(f"invalid NSE expiryDate {value!r}") from exc
     local_expiry = datetime.combine(day, time(15, 30), tzinfo=_INDIA)
-    return local_expiry.astimezone(timezone.utc)
+    return local_expiry.astimezone(UTC)
 
 
 def _observed_at(payload: dict[str, Any], fallback: datetime) -> datetime:
@@ -49,7 +49,7 @@ def _observed_at(payload: dict[str, Any], fallback: datetime) -> datetime:
     for pattern in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y %H:%M"):
         try:
             local = datetime.strptime(stamp, pattern).replace(tzinfo=_INDIA)
-            return local.astimezone(timezone.utc)
+            return local.astimezone(UTC)
         except ValueError:
             continue
     raise SchemaError(f"invalid NSE records.timestamp {stamp!r}")
@@ -65,7 +65,7 @@ def parse_option_chain(
 
     if fetched_at.utcoffset() is None:
         raise ValueError("fetched_at must be timezone-aware")
-    fetched_at = fetched_at.astimezone(timezone.utc)
+    fetched_at = fetched_at.astimezone(UTC)
     if not isinstance(payload, dict):
         raise SchemaError("NSE response root must be an object")
     records = payload.get("records")

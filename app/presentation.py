@@ -162,7 +162,7 @@ def build_smile_chart(
         and contract.status == CALCULATED
         and contract.implied_volatility is not None
     ]
-    anchor = snapshot.forward if snapshot.forward is not None else snapshot.spot
+    anchor = snapshot.forward_for(reference_expiry)
     if not reference_contracts:
         return SmileChart(tuple(series), None, None, reference_expiry)
     atm_strike = min(

@@ -1,6 +1,6 @@
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from nifty_vol.collector import EmptyChainError, SchemaError, parse_option_chain
@@ -14,7 +14,7 @@ def fixture(name: str) -> object:
 
 class OptionChainParserTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.fetched_at = datetime(2026, 9, 4, 10, tzinfo=timezone.utc)
+        self.fetched_at = datetime(2026, 9, 4, 10, tzinfo=UTC)
 
     def test_normalizes_calls_and_puts(self) -> None:
         records = parse_option_chain(
@@ -34,10 +34,10 @@ class OptionChainParserTest(unittest.TestCase):
         self.assertEqual(call.volume, 12500)
         self.assertEqual(call.open_interest, 45000)
         self.assertEqual(
-            call.expiry, datetime(2026, 9, 10, 10, tzinfo=timezone.utc)
+            call.expiry, datetime(2026, 9, 10, 10, tzinfo=UTC)
         )
         self.assertEqual(
-            call.observed_at, datetime(2026, 9, 4, 9, 59, tzinfo=timezone.utc)
+            call.observed_at, datetime(2026, 9, 4, 9, 59, tzinfo=UTC)
         )
         self.assertIsNone(zero_volume_call.last_price)
         self.assertEqual(zero_volume_call.volume, 0)

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Mapping, Protocol, Sequence
-
+from typing import Protocol
 
 CALCULATED = "calculated"
 KNOWN_STATUSES = (
@@ -59,9 +59,14 @@ class Snapshot:
     snapshot_id: str
     captured_at: datetime
     spot: float
-    forward: float | None
     contracts: tuple[Contract, ...]
+    forwards: Mapping[date, float] = field(default_factory=dict)
     thresholds: Mapping[str, str] = field(default_factory=dict)
+
+    def forward_for(self, expiry: date) -> float:
+        """Return the carry forward for an expiry, falling back to spot."""
+
+        return self.forwards.get(expiry, self.spot)
 
 
 class SnapshotRepository(Protocol):

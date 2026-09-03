@@ -1,6 +1,6 @@
 import unittest
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from nifty_vol.collector import (
@@ -62,7 +62,7 @@ class NSEClientTest(unittest.TestCase):
         client = NSEClient(
             config(),
             transport_factory=factory,
-            now=lambda: datetime(2026, 9, 4, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 9, 4, tzinfo=UTC),
         )
 
         records = client.fetch_option_chain()

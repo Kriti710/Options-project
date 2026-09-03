@@ -167,3 +167,38 @@ def test_iteration_limit_is_reported() -> None:
 
     assert result.status is CalculationStatus.SOLVER_DID_NOT_CONVERGE
     assert result.failure is CalculationFailure.ITERATION_LIMIT_REACHED
+
+
+def test_success_requires_price_and_volatility_interval_tolerances() -> None:
+    inputs = dict(S=100.0, K=100.0, T=1.0, r=0.0, q=0.0, option_type="call")
+    market_price = black_scholes_price(**inputs, sigma=0.2)
+    result = implied_volatility(
+        **inputs,
+        market_price=market_price,
+        price_tolerance=1e-8,
+        volatility_tolerance=1e-10,
+    )
+
+    assert result.succeeded
+    assert abs(result.price_error or 0.0) <= 1e-8
+    assert result.volatility_interval_width is not None
+    assert result.volatility_interval_width <= 1e-10
+
+
+def test_price_tolerance_alone_cannot_report_convergence() -> None:
+    result = implied_volatility(
+        S=100,
+        K=100,
+        T=1,
+        r=0,
+        q=0,
+        market_price=10,
+        option_type="call",
+        price_tolerance=100,
+        volatility_tolerance=1e-12,
+        max_iterations=1,
+    )
+
+    assert result.status is CalculationStatus.SOLVER_DID_NOT_CONVERGE
+    assert result.volatility_interval_width is not None
+    assert result.volatility_interval_width > 1e-12

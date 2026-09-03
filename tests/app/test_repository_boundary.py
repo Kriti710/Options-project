@@ -13,7 +13,6 @@ class FakeRepository:
             snapshot_id="completed-1",
             captured_at=datetime(2026, 9, 4, tzinfo=UTC),
             spot=25_000,
-            forward=25_010,
             contracts=(
                 Contract(
                     expiry=date(2026, 9, 10),
@@ -23,6 +22,7 @@ class FakeRepository:
                     implied_volatility=0.2,
                 ),
             ),
+            forwards={date(2026, 9, 10): 25_010},
         )
 
     def list_completed_snapshots(self):

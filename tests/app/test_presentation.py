@@ -13,7 +13,6 @@ from app.presentation import (
     status_counts,
 )
 
-
 EXPIRY = date(2026, 9, 10)
 LATER_EXPIRY = date(2026, 9, 17)
 
@@ -46,8 +45,8 @@ def snapshot(*contracts: Contract) -> Snapshot:
         snapshot_id="snap-1",
         captured_at=datetime(2026, 9, 4, 4, 30, tzinfo=UTC),
         spot=24_980.0,
-        forward=25_025.0,
         contracts=contracts,
+        forwards={EXPIRY: 25_025.0, LATER_EXPIRY: 25_090.0},
         thresholds={"minimum_premium": "₹0.50"},
     )
 
@@ -125,11 +124,19 @@ class PresentationTest(unittest.TestCase):
             snapshot_id="old",
             captured_at=datetime(2026, 9, 3, 4, 30, tzinfo=UTC),
             spot=24_900,
-            forward=24_950,
             contracts=(contract(25_000, "call", 0.25),),
+            forwards={EXPIRY: 24_950},
         )
         chart = build_smile_chart(current, (EXPIRY,), EXPIRY, historical=old)
         self.assertEqual([item.historical for item in chart.series], [False, True])
+
+    def test_atm_reference_uses_forward_for_selected_expiry(self) -> None:
+        data = snapshot(
+            contract(25_000, "call", 0.18, expiry=LATER_EXPIRY),
+            contract(25_100, "call", 0.20, expiry=LATER_EXPIRY),
+        )
+        chart = build_smile_chart(data, (LATER_EXPIRY,), LATER_EXPIRY)
+        self.assertEqual(chart.atm_strike, 25_100)
 
     def test_empty_calculated_data_has_no_reference(self) -> None:
         data = snapshot(

@@ -1,8 +1,8 @@
 """Configuration for polite access to NSE's public option-chain endpoint."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Mapping
 
 
 def _default_headers() -> Mapping[str, str]:
