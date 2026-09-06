@@ -11,7 +11,8 @@
           "bidprice": 180.1,
           "askPrice": 180.9,
           "totalTradedVolume": 12500,
-          "openInterest": 45000
+          "openInterest": 45000,
+          "impliedVolatility": 18.25
         },
         "PE": {
           "expiryDate": "10-Sep-2026",
@@ -19,7 +20,8 @@
           "bidprice": 151.0,
           "askPrice": 151.5,
           "totalTradedVolume": 11000,
-          "openInterest": 41000
+          "openInterest": 41000,
+          "impliedVolatility": 19.75
         }
       },
       {
@@ -30,7 +32,8 @@
           "bidprice": null,
           "askPrice": null,
           "totalTradedVolume": 0,
-          "openInterest": 50
+          "openInterest": 50,
+          "impliedVolatility": 0
         }
       }
     ]

@@ -83,6 +83,7 @@ class FixtureClient:
                 ask=501.0,
                 volume=100,
                 open_interest=1000,
+                nse_iv=0.18,
             )
         ]
 
@@ -113,4 +114,5 @@ def test_collect_and_price_publishes_raw_before_analytics() -> None:
     assert raw.attempt_count == 3
     assert raw.snapshot_id == snapshot_id == pricing_run.snapshot_id
     assert len(raw.observations) == len(analytics) == 1
+    assert raw.observations[0].nse_iv == 0.18
     assert smiles == ()

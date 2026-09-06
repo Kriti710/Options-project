@@ -71,6 +71,7 @@ def build_raw_collection_run(
                 ask=item.ask,
                 volume=item.volume,
                 open_interest=item.open_interest,
+                nse_iv=item.nse_iv,
             )
             for item in records
         ),

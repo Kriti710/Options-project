@@ -1,6 +1,7 @@
 """Strict conversion of NSE option-chain JSON to normalized raw records."""
 
 from datetime import UTC, datetime, time, timedelta, timezone
+from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -29,6 +30,17 @@ def _integer(value: Any, field: str) -> int:
     if number < 0 or not number.is_integer():
         raise SchemaError(f"NSE field {field!r} must be a non-negative integer")
     return int(number)
+
+
+def _nse_implied_volatility(value: Any, field: str) -> float | None:
+    """Normalize NSE percentage points to a positive decimal IV."""
+
+    number = _number(value, field, optional=True)
+    if number is None or number == 0:
+        return None
+    if not isfinite(number) or number < 0:
+        raise SchemaError(f"NSE field {field!r} must be finite and non-negative")
+    return number / 100.0
 
 
 def _expiry(value: Any) -> datetime:
@@ -116,6 +128,10 @@ def parse_option_chain(
                     ),
                     open_interest=_integer(
                         quote.get("openInterest"), f"{nse_key}.openInterest"
+                    ),
+                    nse_iv=_nse_implied_volatility(
+                        quote.get("impliedVolatility"),
+                        f"{nse_key}.impliedVolatility",
                     ),
                 )
             )

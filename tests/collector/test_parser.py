@@ -33,6 +33,8 @@ class OptionChainParserTest(unittest.TestCase):
         self.assertEqual(call.ask, 180.9)
         self.assertEqual(call.volume, 12500)
         self.assertEqual(call.open_interest, 45000)
+        self.assertEqual(call.nse_iv, 0.1825)
+        self.assertEqual(put.nse_iv, 0.1975)
         self.assertEqual(
             call.expiry, datetime(2026, 9, 10, 10, tzinfo=UTC)
         )
@@ -40,7 +42,31 @@ class OptionChainParserTest(unittest.TestCase):
             call.observed_at, datetime(2026, 9, 4, 9, 59, tzinfo=UTC)
         )
         self.assertIsNone(zero_volume_call.last_price)
+        self.assertIsNone(zero_volume_call.nse_iv)
         self.assertEqual(zero_volume_call.volume, 0)
+
+    def test_missing_nse_iv_is_preserved_as_none(self) -> None:
+        payload = fixture("option_chain.json")
+        assert isinstance(payload, dict)
+        del payload["records"]["data"][0]["CE"]["impliedVolatility"]
+
+        records = parse_option_chain(payload, fetched_at=self.fetched_at)
+
+        self.assertIsNone(records[0].nse_iv)
+
+    def test_rejects_invalid_nse_iv(self) -> None:
+        for invalid in (-1, float("nan"), float("inf")):
+            with self.subTest(invalid=invalid):
+                payload = fixture("option_chain.json")
+                assert isinstance(payload, dict)
+                payload["records"]["data"][0]["CE"][
+                    "impliedVolatility"
+                ] = invalid
+
+                with self.assertRaisesRegex(
+                    SchemaError, "impliedVolatility.*finite and non-negative"
+                ):
+                    parse_option_chain(payload, fetched_at=self.fetched_at)
 
     def test_uses_fetch_time_when_nse_timestamp_is_absent(self) -> None:
         payload = fixture("option_chain.json")
