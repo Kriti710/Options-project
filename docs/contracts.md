@@ -96,12 +96,12 @@ which component may write what.
 | --- | --- | --- |
 | `collection_runs`, `option_observations` | `collector` | Raw NSE quotes and run status. One row per contract, tall key `(snapshot_id, expiry, strike, option_type)`. `option_type` is `call`/`put`. |
 | `pricing_runs`, `option_analytics`, `pricing_smiles` | `pricer` | One pricing pass per snapshot (rate and threshold set), computed implied volatility and Greeks on the same tall key, and one fitted reference smile per scored expiry. |
-| all four | `reader` | Read-only. |
+| all five | `reader` | Read-only. |
 
 - The `pricer` writes after the collection run is already `completed`; its rows
   are insert-once and never updated or deleted (corrections are new snapshots).
-- `option_analytics` and `option_observations` carry the identical seven-value
-  `calculation_status` set, so a reader renders one enum regardless of source.
+- `option_analytics` carries the canonical seven-value `calculation_status`;
+  raw `option_observations` contains no computed outcome fields.
 - `forward` (F = S·e^((r−q)T), per expiry) is persisted on `option_analytics`
   so the reader never recomputes it; it is null exactly when `time_to_expiry`
   is null.

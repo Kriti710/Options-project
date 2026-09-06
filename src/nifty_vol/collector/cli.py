@@ -8,11 +8,10 @@ from uuid import UUID
 
 from nifty_vol.collector.client import NSEClient
 from nifty_vol.collector.models import OptionRecord
-from nifty_vol.pipeline import PipelineConfig, build_collection_run, storage_expiry_date
+from nifty_vol.pipeline import PipelineConfig, storage_expiry_date
 from nifty_vol.pricer import price_snapshot
 from nifty_vol.settings import EnvironmentConfig
 from nifty_vol.storage import (
-    CollectionRun,
     ContractIdentity,
     OptionAnalytics,
     PricingRun,
@@ -32,10 +31,6 @@ class CountedChainClient(ChainClient, Protocol):
     def attempt_count(self) -> int: ...
 
 
-class SnapshotWriter(Protocol):
-    def write_snapshot_atomic(self, run: CollectionRun) -> UUID: ...
-
-
 class RawSnapshotWriter(Protocol):
     def write_collection_atomic(self, run: RawCollectionRun) -> UUID: ...
 
@@ -47,15 +42,6 @@ class PricingWriter(Protocol):
         rows: tuple[OptionAnalytics, ...],
         smiles: tuple[PricingSmile, ...] = (),
     ) -> UUID: ...
-
-
-def collect_once(
-    client: ChainClient, writer: SnapshotWriter, config: PipelineConfig
-) -> UUID:
-    """Fetch, calculate, and atomically publish exactly one snapshot."""
-
-    records = client.fetch_option_chain()
-    return writer.write_snapshot_atomic(build_collection_run(records, config))
 
 
 def build_raw_collection_run(
