@@ -38,10 +38,12 @@ python -m pip install -e ".[dev]"
 Use `.env.example` as the configuration checklist. Never commit populated
 environment or secrets files.
 
-The two database URLs must use separate PostgreSQL roles:
+The three database URLs must use separate PostgreSQL roles:
 
 - `COLLECTOR_DATABASE_URL`: a local collector role allowed to insert and publish
-  snapshots.
+  raw snapshots.
+- `PRICER_DATABASE_URL`: a pricer role allowed to read raw snapshots and publish
+  pricing runs, analytics, and fitted smiles.
 - `READER_DATABASE_URL`: a SELECT-only role used by Streamlit. The reader also
   requests a read-only PostgreSQL session.
 
@@ -50,6 +52,7 @@ variables directly. For a local PowerShell session:
 
 ```powershell
 $env:COLLECTOR_DATABASE_URL = "postgresql://collector-role:password@host/database"
+$env:PRICER_DATABASE_URL = "postgresql://pricer-role:password@host/database"
 $env:READER_DATABASE_URL = "postgresql://reader-role:password@host/database"
 $env:RISK_FREE_RATE_DECIMAL = "0.065"
 $env:DIVIDEND_YIELD_DECIMAL = "0.00"
@@ -57,15 +60,16 @@ $env:DIVIDEND_YIELD_DECIMAL = "0.00"
 
 ## One-shot collection
 
-After applying the migrations separately and configuring the collector
-environment, run one collection with:
+After applying the migrations separately and configuring the collector and
+pricer environment, run one collection-and-pricing cycle with:
 
 ```powershell
 nifty-vol-collect
 ```
 
-Scheduling is deliberately external to the command. It performs one fetch and
-one atomic snapshot write, then exits. The reader uses
+Scheduling is deliberately external to the command. It writes the raw snapshot
+through the collector role, then atomically publishes pricing through the
+pricer role, and exits. The reader uses
 `app.storage_adapter.StorageReaderAdapter` to project completed storage
 snapshots; it never contacts NSE.
 

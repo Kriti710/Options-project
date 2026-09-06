@@ -41,6 +41,7 @@ class EnvironmentConfig:
     """Runtime configuration shared by one-shot collector composition."""
 
     collector_database_url: str
+    pricer_database_url: str
     collector: CollectorConfig
     pipeline: PipelineConfig
 
@@ -52,6 +53,9 @@ class EnvironmentConfig:
         database_url = values.get("COLLECTOR_DATABASE_URL", "").strip()
         if not database_url:
             raise MissingConfigurationError("COLLECTOR_DATABASE_URL is required")
+        pricer_database_url = values.get("PRICER_DATABASE_URL", "").strip()
+        if not pricer_database_url:
+            raise MissingConfigurationError("PRICER_DATABASE_URL is required")
         collector = CollectorConfig(
             base_url=values.get("NSE_BASE_URL", "https://www.nseindia.com"),
             symbol=values.get("NSE_SYMBOL", "NIFTY"),
@@ -83,7 +87,7 @@ class EnvironmentConfig:
             ),
             maximum_iterations=_int(values, "IV_SOLVER_MAX_ITERATIONS", 200),
         )
-        return cls(database_url, collector, pipeline)
+        return cls(database_url, pricer_database_url, collector, pipeline)
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,6 +11,7 @@ def test_environment_configuration_builds_collector_and_pipeline() -> None:
     settings = EnvironmentConfig.from_env(
         {
             "COLLECTOR_DATABASE_URL": "postgresql://writer.example.invalid/db",
+            "PRICER_DATABASE_URL": "postgresql://pricer.example.invalid/db",
             "RISK_FREE_RATE_DECIMAL": "0.065",
             "DIVIDEND_YIELD_DECIMAL": "0.012",
             "MIN_OPTION_PREMIUM": "0.5",
@@ -22,11 +23,17 @@ def test_environment_configuration_builds_collector_and_pipeline() -> None:
     assert settings.pipeline.volatility_tolerance == 1e-9
     assert settings.collector.symbol == "NIFTY"
     assert "writer.example.invalid" in settings.collector_database_url
+    assert "pricer.example.invalid" in settings.pricer_database_url
 
 
 def test_environment_configuration_requires_secrets_and_rates() -> None:
     with pytest.raises(MissingConfigurationError, match="COLLECTOR_DATABASE_URL"):
         EnvironmentConfig.from_env({})
+
+    with pytest.raises(MissingConfigurationError, match="PRICER_DATABASE_URL"):
+        EnvironmentConfig.from_env(
+            {"COLLECTOR_DATABASE_URL": "postgresql://collector/db"}
+        )
 
 
 def test_reader_configuration_supports_env_and_streamlit_secrets() -> None:
