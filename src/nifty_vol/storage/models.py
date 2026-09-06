@@ -125,3 +125,100 @@ class SnapshotMeta:
     assumptions: Mapping[str, Any]
     thresholds: Mapping[str, Any]
     contract_count: int
+
+
+# ---------------------------------------------------------------------------
+# Split storage model (migration 002): raw collection and computed pricing are
+# separate tables with separate write roles. `OptionObservation` above keeps the
+# whole combined row for the legacy single-writer path; the models below carry
+# only the pricer-owned half.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PricingRun:
+    """One pricing pass over one collection snapshot: one rate and threshold set.
+
+    Written by the `pricer` role into `pricing_runs`. `snapshot_id` matches the
+    `collection_runs` row the raw quotes came from.
+    """
+
+    snapshot_id: UUID
+    priced_at: datetime
+    risk_free_rate: float
+    dividend_yield: float
+    model_name: str
+    assumptions: Mapping[str, Any]
+    thresholds: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "priced_at", utc_datetime(self.priced_at, "priced_at")
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OptionAnalytics:
+    """Computed implied volatility and Greeks for one observed contract.
+
+    Written by the `pricer` role into `option_analytics`. The identity must
+    match an existing `option_observations` row in the same snapshot.
+    """
+
+    identity: ContractIdentity
+    calculation_status: str
+    selected_price: float | None = None
+    price_source: str | None = None
+    forward: float | None = None
+    time_to_expiry: float | None = None
+    exclusion_reason: str | None = None
+    implied_volatility: float | None = None
+    delta: float | None = None
+    gamma: float | None = None
+    vega: float | None = None
+    theta: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.calculation_status not in CALCULATION_STATUSES:
+            raise ValueError(
+                f"unknown calculation_status: {self.calculation_status}"
+            )
+        if self.price_source is not None and self.price_source not in PRICE_SOURCES:
+            raise ValueError(f"unknown price_source: {self.price_source}")
+        if (self.forward is None) != (self.time_to_expiry is None):
+            raise ValueError(
+                "forward is defined exactly when time_to_expiry is defined"
+            )
+        if self.calculation_status == "calculated":
+            if self.exclusion_reason is not None:
+                raise ValueError(
+                    "calculated analytics cannot have an exclusion_reason"
+                )
+            required = (
+                self.implied_volatility,
+                self.delta,
+                self.gamma,
+                self.vega,
+                self.theta,
+                self.time_to_expiry,
+            )
+            if any(value is None for value in required):
+                raise ValueError("calculated analytics require IV, Greeks, and T")
+        elif not self.exclusion_reason:
+            raise ValueError("non-calculated analytics require an exclusion_reason")
+
+
+@dataclass(frozen=True, slots=True)
+class PricedSnapshotMeta:
+    """Run metadata for a completed, priced snapshot (collection + pricing)."""
+
+    snapshot_id: UUID
+    collected_at: datetime
+    priced_at: datetime
+    spot: float
+    risk_free_rate: float
+    dividend_yield: float
+    model_name: str
+    assumptions: Mapping[str, Any]
+    thresholds: Mapping[str, Any]
+    contract_count: int
