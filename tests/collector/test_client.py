@@ -183,6 +183,49 @@ class NSEClientTest(unittest.TestCase):
         with self.assertRaises(MalformedJSONError):
             client.fetch_option_chain()
 
+    def test_attempt_count_is_one_on_first_try_success(self) -> None:
+        client = NSEClient(config(), transport_factory=Factory([[HTML, JSON]]))
+
+        client.fetch_option_chain()
+
+        self.assertEqual(client.attempt_count, 1)
+
+    def test_attempt_count_includes_bounded_retries(self) -> None:
+        factory = Factory(
+            [[HTML, TransportError("offline"), TransportError("offline"), JSON]]
+        )
+        client = NSEClient(
+            config(max_retries=2, retry_backoff_seconds=0),
+            transport_factory=factory,
+            sleep=lambda _: None,
+        )
+
+        client.fetch_option_chain()
+
+        self.assertEqual(client.attempt_count, 3)
+
+    def test_attempt_count_spans_session_rebuild(self) -> None:
+        forbidden = HTTPResponse(403, {"Content-Type": "text/html"}, b"blocked")
+        factory = Factory([[HTML, forbidden], [HTML, JSON]])
+        client = NSEClient(config(), transport_factory=factory)
+
+        client.fetch_option_chain()
+
+        self.assertEqual(client.attempt_count, 2)
+
+    def test_attempt_count_excludes_bootstrap_and_survives_failure(self) -> None:
+        client = NSEClient(
+            config(max_retries=1),
+            transport_factory=Factory(
+                [[HTML, TransportError("offline"), TransportError("offline")]]
+            ),
+            sleep=lambda _: None,
+        )
+
+        with self.assertRaises(TransportError):
+            client.fetch_option_chain()
+        self.assertEqual(client.attempt_count, 2)
+
     def test_custom_headers_and_symbol_are_used_without_secret_handling(self) -> None:
         factory = Factory([[HTML, JSON]])
         custom = config(symbol="BANKNIFTY", headers={"User-Agent": "test-browser"})

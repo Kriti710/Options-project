@@ -79,6 +79,20 @@ class NSEClient:
         self._now = now
         self._last_request_at: float | None = None
         self._bootstrapped = False
+        self._attempt_count = 0
+
+    @property
+    def attempt_count(self) -> int:
+        """Option-chain fetch attempts behind the most recent ``fetch_option_chain``.
+
+        Counts every HTTP call to the option-chain endpoint, including bounded
+        retries and the requests issued after a single session rebuild, and
+        including the successful attempt. Session bootstrap requests are not
+        counted. Stays populated after a failed fetch so the caller can record
+        it on a ``failed`` collection run.
+        """
+
+        return self._attempt_count
 
     def _pace(self) -> None:
         if self._last_request_at is not None:
@@ -124,10 +138,14 @@ class NSEClient:
                 pass
         return self.config.retry_backoff_seconds * (2**retry)
 
-    def _request_with_retries(self, url: str) -> HTTPResponse:
+    def _request_with_retries(
+        self, url: str, *, count: bool = False
+    ) -> HTTPResponse:
         last_transport_error: TransportError | None = None
         response: HTTPResponse | None = None
         for attempt in range(self.config.max_retries + 1):
+            if count:
+                self._attempt_count += 1
             try:
                 response = self._get(url)
                 last_transport_error = None
@@ -154,13 +172,19 @@ class NSEClient:
     def fetch_option_chain(self) -> list[OptionRecord]:
         """Fetch and validate NIFTY's chain, rebuilding auth at most once."""
 
+        self._attempt_count = 0
+
         if not self._bootstrapped:
             self._bootstrap()
 
-        response = self._request_with_retries(self.config.option_chain_url)
+        response = self._request_with_retries(
+            self.config.option_chain_url, count=True
+        )
         if response.status in (401, 403):
             self._rebuild_session()
-            response = self._request_with_retries(self.config.option_chain_url)
+            response = self._request_with_retries(
+                self.config.option_chain_url, count=True
+            )
             if response.status in (401, 403):
                 raise AuthorizationError(
                     "NSE rejected the option-chain request after one session rebuild "
