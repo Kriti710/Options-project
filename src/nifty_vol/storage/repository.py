@@ -20,6 +20,7 @@ from .models import (
     OptionObservation,
     PricedSnapshotMeta,
     PricingRun,
+    PricingSmile,
     SnapshotMeta,
     utc_datetime,
 )
@@ -365,12 +366,15 @@ class SnapshotRepository:
             cursor.close()
 
     def write_pricing_atomic(
-        self, run: PricingRun, rows: Sequence[OptionAnalytics]
+        self,
+        run: PricingRun,
+        rows: Sequence[OptionAnalytics],
+        smiles: Sequence[PricingSmile] = (),
     ) -> UUID:
         """Publish one pricing pass in a single transaction.
 
         The matching `collection_runs` row must already exist. Every analytics
-        row is inserted or the whole pass rolls back.
+        row and fitted smile is inserted or the whole pass rolls back.
         """
         cursor = self._connection.cursor()
         try:
@@ -388,12 +392,28 @@ class SnapshotRepository:
                     json.dumps(dict(run.thresholds), sort_keys=True),
                 ),
             )
+            if smiles:
+                cursor.executemany(
+                    "INSERT INTO pricing_smiles (snapshot_id, expiry, forward, "
+                    "c0, c1, c2, sample_size, residual_scale) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        (
+                            run.snapshot_id, smile.expiry, smile.forward,
+                            smile.c0, smile.c1, smile.c2,
+                            smile.sample_size, smile.residual_scale,
+                        )
+                        for smile in smiles
+                    ),
+                )
             cursor.executemany(
                 "INSERT INTO option_analytics "
                 "(snapshot_id, expiry, strike, option_type, selected_price, "
                 "price_source, forward, time_to_expiry, calculation_status, "
-                "exclusion_reason, implied_volatility, delta, gamma, vega, theta) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "exclusion_reason, implied_volatility, delta, gamma, vega, theta, "
+                "fitted_iv, iv_residual, richness_price, richness_z, valuation) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+                "%s, %s, %s, %s, %s)",
                 (
                     self._analytics_params(run.snapshot_id, item)
                     for item in rows
@@ -406,6 +426,49 @@ class SnapshotRepository:
             raise
         finally:
             cursor.close()
+
+    def list_smiles(self, snapshot_id: UUID) -> list[PricingSmile]:
+        cursor = self._connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT s.* FROM pricing_smiles s "
+                "JOIN collection_runs r ON r.snapshot_id = s.snapshot_id "
+                "WHERE s.snapshot_id = %s AND r.status = 'completed' "
+                "ORDER BY s.expiry",
+                (snapshot_id,),
+            )
+            return [self._smile(cursor, row) for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+
+    def get_smile(
+        self, snapshot_id: UUID, expiry: date
+    ) -> PricingSmile | None:
+        cursor = self._connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT s.* FROM pricing_smiles s "
+                "JOIN collection_runs r ON r.snapshot_id = s.snapshot_id "
+                "WHERE s.snapshot_id = %s AND s.expiry = %s "
+                "AND r.status = 'completed'",
+                (snapshot_id, expiry),
+            )
+            row = cursor.fetchone()
+            return None if row is None else self._smile(cursor, row)
+        finally:
+            cursor.close()
+
+    def _smile(self, cursor: Cursor, row: Any) -> PricingSmile:
+        item = _row_mapping(cursor, row)
+        return PricingSmile(
+            expiry=item["expiry"],
+            forward=item["forward"],
+            c0=item["c0"],
+            c1=item["c1"],
+            c2=item["c2"],
+            sample_size=item["sample_size"],
+            residual_scale=item["residual_scale"],
+        )
 
     def _priced_meta(self, cursor: Cursor, row: Any) -> PricedSnapshotMeta:
         item = _row_mapping(cursor, row)
@@ -441,6 +504,11 @@ class SnapshotRepository:
             gamma=item["gamma"],
             vega=item["vega"],
             theta=item["theta"],
+            fitted_iv=item["fitted_iv"],
+            iv_residual=item["iv_residual"],
+            richness_price=item["richness_price"],
+            richness_z=item["richness_z"],
+            valuation=item["valuation"],
         )
 
     @staticmethod
@@ -453,4 +521,6 @@ class SnapshotRepository:
             item.selected_price, item.price_source, item.forward,
             item.time_to_expiry, item.calculation_status, item.exclusion_reason,
             item.implied_volatility, item.delta, item.gamma, item.vega, item.theta,
+            item.fitted_iv, item.iv_residual, item.richness_price, item.richness_z,
+            item.valuation,
         )

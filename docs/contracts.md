@@ -95,7 +95,7 @@ which component may write what.
 | Table | Written by | Holds |
 | --- | --- | --- |
 | `collection_runs`, `option_observations` | `collector` | Raw NSE quotes and run status. One row per contract, tall key `(snapshot_id, expiry, strike, option_type)`. `option_type` is `call`/`put`. |
-| `pricing_runs`, `option_analytics` | `pricer` | One pricing pass per snapshot (rate and threshold set) plus computed implied volatility and Greeks, same tall key. |
+| `pricing_runs`, `option_analytics`, `pricing_smiles` | `pricer` | One pricing pass per snapshot (rate and threshold set), computed implied volatility and Greeks on the same tall key, and one fitted reference smile per scored expiry. |
 | all four | `reader` | Read-only. |
 
 - The `pricer` writes after the collection run is already `completed`; its rows
@@ -107,6 +107,15 @@ which component may write what.
   is null.
 - Greek units are unchanged: vega per `0.01` of volatility, theta per calendar
   day.
+- `option_analytics` also carries advisory richness columns (`fitted_iv`,
+  `iv_residual`, `richness_price`, `richness_z`, `valuation` in
+  `cheap`/`fair`/`expensive`/`unscored`). They are nullable, not gated by
+  `calculation_status`, and populated by the pricer only when the expiry had
+  enough priced contracts to fit a reference smile.
+- `pricing_smiles` holds that fitted curve, one row per scored expiry:
+  `iv = c0 + c1*k + c2*k^2` with `k = ln(strike / forward)`, natural log. An
+  expiry with too few calculated contracts has no row and every contract in it
+  is `valuation = 'unscored'`.
 - NSE's option-chain timestamp (`dd-Mon-yyyy HH:MM:SS`, no zone) is interpreted
   as `Asia/Kolkata` and stored as UTC.
 

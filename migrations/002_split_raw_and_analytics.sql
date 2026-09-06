@@ -4,9 +4,9 @@
 -- the pricer, and the reader are distinct database roles with non-overlapping
 -- write scope.
 --
---   collection_runs / option_observations  -> written by the `collector` role
---   pricing_runs     / option_analytics    -> written by the `pricer` role
---   everything                             -> read by the `reader` role
+--   collection_runs / option_observations           -> `collector` role
+--   pricing_runs / option_analytics / pricing_smiles -> `pricer` role
+--   everything                                       -> read by `reader`
 --
 -- This migration is ADDITIVE. It creates the two pricer-owned tables, adds two
 -- columns to the collector-owned tables, and provisions the three roles. The
@@ -97,6 +97,18 @@ CREATE TABLE option_analytics (
     vega double precision,
     theta double precision,
 
+    -- Richness scoring (task #1): how this contract's market IV compares with a
+    -- robust reference smile fitted to its expiry. Advisory and fully nullable
+    -- - populated only for 'calculated' rows whose expiry had enough priced
+    -- contracts to fit a curve; otherwise valuation is 'unscored' and the rest
+    -- are null. Not coupled to calculation_status by CHECK. Owned by the pricer
+    -- (nifty_vol.domain.richness).
+    fitted_iv double precision,
+    iv_residual double precision,
+    richness_price double precision,
+    richness_z double precision,
+    valuation text CHECK (valuation IN ('cheap', 'fair', 'expensive', 'unscored')),
+
     PRIMARY KEY (snapshot_id, expiry, strike, option_type),
 
     -- Analytics rows exist only for contracts that were actually observed.
@@ -129,6 +141,28 @@ CREATE INDEX option_analytics_curve_idx
     ON option_analytics (snapshot_id, expiry, strike, option_type);
 
 -- --------------------------------------------------------------------------
+-- Pricer-owned: the fitted reference smile per expiry
+-- --------------------------------------------------------------------------
+
+-- One row per expiry that had enough calculated contracts to fit a smile. The
+-- reader samples this quadratic densely to draw a smooth reference curve:
+--     iv = c0 + c1*k + c2*k^2,   k = ln(strike / forward)   (natural log)
+-- Expiries with too few calculated contracts get no row here and every
+-- contract in that expiry carries option_analytics.valuation = 'unscored'.
+CREATE TABLE pricing_smiles (
+    snapshot_id uuid NOT NULL
+        REFERENCES pricing_runs(snapshot_id) ON DELETE RESTRICT,
+    expiry date NOT NULL,
+    forward double precision NOT NULL CHECK (forward > 0),
+    c0 double precision NOT NULL,
+    c1 double precision NOT NULL,
+    c2 double precision NOT NULL,
+    sample_size integer NOT NULL CHECK (sample_size >= 3),
+    residual_scale double precision NOT NULL CHECK (residual_scale >= 0),
+    PRIMARY KEY (snapshot_id, expiry)
+);
+
+-- --------------------------------------------------------------------------
 -- Immutability: pricing output is insert-once and never rewritten
 -- --------------------------------------------------------------------------
 
@@ -159,6 +193,10 @@ CREATE TRIGGER option_analytics_completed_immutable
 BEFORE UPDATE OR DELETE ON option_analytics
 FOR EACH ROW EXECUTE FUNCTION reject_priced_row_mutation();
 
+CREATE TRIGGER pricing_smiles_completed_immutable
+BEFORE UPDATE OR DELETE ON pricing_smiles
+FOR EACH ROW EXECUTE FUNCTION reject_priced_row_mutation();
+
 -- --------------------------------------------------------------------------
 -- Role separation
 -- --------------------------------------------------------------------------
@@ -187,11 +225,12 @@ GRANT UPDATE (status, completed_at, failure_diagnostics) ON collection_runs TO c
 
 -- pricer: reads raw collection, writes computed analytics.
 GRANT SELECT ON collection_runs, option_observations TO pricer;
-GRANT SELECT, INSERT ON pricing_runs, option_analytics TO pricer;
+GRANT SELECT, INSERT ON pricing_runs, option_analytics, pricing_smiles TO pricer;
 
 -- reader: reads everything, writes nothing.
 GRANT SELECT ON
-    collection_runs, option_observations, pricing_runs, option_analytics
+    collection_runs, option_observations,
+    pricing_runs, option_analytics, pricing_smiles
     TO reader;
 
 COMMIT;

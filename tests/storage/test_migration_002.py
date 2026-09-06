@@ -43,6 +43,25 @@ class SplitMigrationContractTests(TestCase):
             self.assertIn(f"'{status}'", MIGRATION)
         self.assertIn("exclusion_reason text", MIGRATION)
 
+    def test_analytics_carries_advisory_richness_columns(self) -> None:
+        for column in (
+            "fitted_iv",
+            "iv_residual",
+            "richness_price",
+            "richness_z",
+        ):
+            self.assertRegex(MIGRATION, rf"{column} double precision")
+        self.assertIn(
+            "valuation text CHECK (valuation IN "
+            "('cheap', 'fair', 'expensive', 'unscored'))",
+            MIGRATION,
+        )
+        # richness stays advisory: the "calculated" CHECK gate never mentions it
+        gate = MIGRATION[MIGRATION.index("A converged calculation") :]
+        gate = gate[: gate.index("-- The forward is defined")]
+        for column in ("fitted_iv", "iv_residual", "richness_price", "valuation"):
+            self.assertNotIn(column, gate)
+
     def test_analytics_forward_present_iff_time_to_expiry_present(self) -> None:
         self.assertIn(
             "CHECK ((forward IS NULL) = (time_to_expiry IS NULL))", MIGRATION
@@ -70,6 +89,18 @@ class SplitMigrationContractTests(TestCase):
             "BEFORE INSERT OR UPDATE OR DELETE ON option_analytics", MIGRATION
         )
 
+    def test_creates_pricing_smiles_keyed_by_snapshot_and_expiry(self) -> None:
+        self.assertIn("CREATE TABLE pricing_smiles", MIGRATION)
+        self.assertIn("PRIMARY KEY (snapshot_id, expiry)", MIGRATION)
+        self.assertRegex(MIGRATION, r"c0 double precision NOT NULL")
+        self.assertRegex(
+            MIGRATION,
+            r"sample_size integer NOT NULL CHECK \(sample_size >= 3\)",
+        )
+        self.assertIn(
+            "BEFORE UPDATE OR DELETE ON pricing_smiles", MIGRATION
+        )
+
     def test_defines_required_indexes(self) -> None:
         for index in (
             "option_analytics_snapshot_idx",
@@ -92,7 +123,8 @@ class SplitMigrationContractTests(TestCase):
             MIGRATION,
         )
         self.assertIn(
-            "GRANT SELECT, INSERT ON pricing_runs, option_analytics TO pricer",
+            "GRANT SELECT, INSERT ON pricing_runs, option_analytics, "
+            "pricing_smiles TO pricer",
             MIGRATION,
         )
         # reader writes nothing

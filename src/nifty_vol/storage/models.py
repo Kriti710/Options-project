@@ -25,6 +25,7 @@ CALCULATION_STATUSES = frozenset(
 )
 PRICE_SOURCES = frozenset({"midpoint", "last_traded_price"})
 OPTION_TYPES = frozenset({"call", "put"})
+VALUATIONS = frozenset({"cheap", "fair", "expensive", "unscored"})
 
 
 def utc_datetime(value: datetime, field_name: str) -> datetime:
@@ -177,6 +178,14 @@ class OptionAnalytics:
     gamma: float | None = None
     vega: float | None = None
     theta: float | None = None
+    # Richness scoring (task #1). Advisory; populated by the pricer only when the
+    # contract is `calculated` and its expiry had enough priced peers to fit a
+    # reference smile, otherwise `valuation` is "unscored" and the rest are None.
+    fitted_iv: float | None = None
+    iv_residual: float | None = None
+    richness_price: float | None = None
+    richness_z: float | None = None
+    valuation: str | None = None
 
     def __post_init__(self) -> None:
         if self.calculation_status not in CALCULATION_STATUSES:
@@ -185,6 +194,8 @@ class OptionAnalytics:
             )
         if self.price_source is not None and self.price_source not in PRICE_SOURCES:
             raise ValueError(f"unknown price_source: {self.price_source}")
+        if self.valuation is not None and self.valuation not in VALUATIONS:
+            raise ValueError(f"unknown valuation: {self.valuation}")
         if (self.forward is None) != (self.time_to_expiry is None):
             raise ValueError(
                 "forward is defined exactly when time_to_expiry is defined"
@@ -206,6 +217,39 @@ class OptionAnalytics:
                 raise ValueError("calculated analytics require IV, Greeks, and T")
         elif not self.exclusion_reason:
             raise ValueError("non-calculated analytics require an exclusion_reason")
+
+
+@dataclass(frozen=True, slots=True)
+class PricingSmile:
+    """The fitted reference smile for one expiry of one pricing pass.
+
+    Written by the `pricer` role into `pricing_smiles`. Evaluated as
+    ``iv = c0 + c1*k + c2*k**2`` with ``k = ln(strike / forward)`` (natural log).
+    A row exists only for expiries with enough calculated contracts to fit.
+    """
+
+    expiry: date
+    forward: float
+    c0: float
+    c1: float
+    c2: float
+    sample_size: int
+    residual_scale: float
+
+    def __post_init__(self) -> None:
+        if self.forward <= 0:
+            raise ValueError("forward must be positive")
+        if self.sample_size < 3:
+            raise ValueError("a quadratic smile fit needs at least 3 contracts")
+        if self.residual_scale < 0:
+            raise ValueError("residual_scale cannot be negative")
+
+    def evaluate(self, strike: float) -> float:
+        """Reference IV at *strike* on this smile."""
+        from math import log
+
+        k = log(strike / self.forward)
+        return self.c0 + self.c1 * k + self.c2 * k * k
 
 
 @dataclass(frozen=True, slots=True)

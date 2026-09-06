@@ -3,7 +3,12 @@ from typing import Any
 from unittest import TestCase
 from uuid import uuid4
 
-from nifty_vol.storage import ContractIdentity, OptionAnalytics, PricingRun
+from nifty_vol.storage import (
+    ContractIdentity,
+    OptionAnalytics,
+    PricingRun,
+    PricingSmile,
+)
 from nifty_vol.storage.repository import SnapshotRepository
 
 
@@ -93,13 +98,25 @@ def excluded_row() -> OptionAnalytics:
     )
 
 
+def smile() -> PricingSmile:
+    return PricingSmile(
+        expiry=date(2026, 9, 24),
+        forward=22050.0,
+        c0=0.18,
+        c1=-0.04,
+        c2=0.5,
+        sample_size=9,
+        residual_scale=0.01,
+    )
+
+
 class PricerWriterTests(TestCase):
     def test_pricing_run_written_before_analytics_and_commits_once(self) -> None:
         connection = FakeConnection()
         run = pricing_run()
 
         result = SnapshotRepository(connection).write_pricing_atomic(
-            run, (calculated_row(), excluded_row())
+            run, (calculated_row(), excluded_row()), (smile(),)
         )
 
         self.assertEqual(result, run.snapshot_id)
@@ -108,8 +125,20 @@ class PricerWriterTests(TestCase):
         sql = " ".join(statement for statement, _ in connection.statements)
         self.assertLess(
             sql.index("INSERT INTO pricing_runs"),
+            sql.index("INSERT INTO pricing_smiles"),
+        )
+        self.assertLess(
+            sql.index("INSERT INTO pricing_smiles"),
             sql.index("INSERT INTO option_analytics"),
         )
+
+    def test_smiles_are_optional(self) -> None:
+        connection = FakeConnection()
+        SnapshotRepository(connection).write_pricing_atomic(
+            pricing_run(), (calculated_row(),)
+        )
+        sql = " ".join(statement for statement, _ in connection.statements)
+        self.assertNotIn("INSERT INTO pricing_smiles", sql)
 
     def test_analytics_failure_rolls_back_and_never_commits(self) -> None:
         connection = FakeConnection(fail_on="INSERT INTO option_analytics")
@@ -134,8 +163,10 @@ class PricedReaderTests(TestCase):
         repository.get_priced_snapshot_meta(snapshot_id)
         repository.get_analytics_curve(snapshot_id, identity.expiry)
         repository.get_analytics_contract(snapshot_id, identity)
+        repository.list_smiles(snapshot_id)
+        repository.get_smile(snapshot_id, identity.expiry)
 
-        self.assertEqual(len(connection.statements), 4)
+        self.assertEqual(len(connection.statements), 6)
         for sql, _ in connection.statements:
             self.assertIn("status = 'completed'", sql)
 
