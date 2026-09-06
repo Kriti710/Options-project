@@ -49,6 +49,51 @@ class ContractIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class RawOptionObservation:
+    """One contract's raw NSE quote, before any pricing.
+
+    Written by the `collector` role into `option_observations`. Carries only the
+    market-data columns plus NSE's own published IV; the pricer fills the
+    computed columns later via `option_analytics`.
+    """
+
+    identity: ContractIdentity
+    last_traded_price: float | None = None
+    bid: float | None = None
+    ask: float | None = None
+    volume: int | None = None
+    open_interest: int | None = None
+    nse_iv: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RawCollectionRun:
+    """One raw collection snapshot: the option chain as fetched, nothing priced.
+
+    Written by the `collector` role. Promoted to `completed` atomically once
+    every row is persisted.
+    """
+
+    collected_at: datetime
+    spot: float
+    observations: tuple[RawOptionObservation, ...]
+    attempt_count: int = 1
+    snapshot_id: UUID = field(default_factory=uuid4)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "collected_at", utc_datetime(self.collected_at, "collected_at")
+        )
+        if self.spot <= 0:
+            raise ValueError("spot must be positive")
+        if self.attempt_count < 1:
+            raise ValueError("attempt_count must be at least 1")
+        identities = [item.identity for item in self.observations]
+        if len(identities) != len(set(identities)):
+            raise ValueError("contract identity must be unique within a snapshot")
+
+
+@dataclass(frozen=True, slots=True)
 class OptionObservation:
     identity: ContractIdentity
     last_traded_price: float | None

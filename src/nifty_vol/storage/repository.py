@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -21,6 +21,7 @@ from .models import (
     PricedSnapshotMeta,
     PricingRun,
     PricingSmile,
+    RawCollectionRun,
     SnapshotMeta,
     utc_datetime,
 )
@@ -260,6 +261,89 @@ class SnapshotRepository:
             )
             self._connection.commit()
             return run.snapshot_id
+        except BaseException:
+            self._connection.rollback()
+            raise
+        finally:
+            cursor.close()
+
+    # -- Raw collection write path (migration 003): collector role ------------
+
+    def write_collection_atomic(self, run: RawCollectionRun) -> UUID:
+        """Publish a raw collection snapshot in one transaction.
+
+        Inserts `collection_runs` (in_progress, pricing columns left NULL) and
+        the raw `option_observations`, then promotes to `completed`. Any row
+        failure rolls the whole snapshot back.
+        """
+        cursor = self._connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO collection_runs "
+                "(snapshot_id, collected_at, status, spot, attempt_count) "
+                "VALUES (%s, %s, 'in_progress', %s, %s)",
+                (run.snapshot_id, run.collected_at, run.spot, run.attempt_count),
+            )
+            cursor.executemany(
+                "INSERT INTO option_observations "
+                "(snapshot_id, expiry, strike, option_type, "
+                "last_traded_price, bid, ask, volume, open_interest, nse_iv) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    (
+                        run.snapshot_id,
+                        item.identity.expiry,
+                        item.identity.strike,
+                        item.identity.option_type,
+                        item.last_traded_price,
+                        item.bid,
+                        item.ask,
+                        item.volume,
+                        item.open_interest,
+                        item.nse_iv,
+                    )
+                    for item in run.observations
+                ),
+            )
+            cursor.execute(
+                "UPDATE collection_runs SET status = 'completed', completed_at = now() "
+                "WHERE snapshot_id = %s AND status = 'in_progress'",
+                (run.snapshot_id,),
+            )
+            self._connection.commit()
+            return run.snapshot_id
+        except BaseException:
+            self._connection.rollback()
+            raise
+        finally:
+            cursor.close()
+
+    def record_failed_collection(
+        self,
+        snapshot_id: UUID,
+        collected_at: datetime,
+        attempt_count: int,
+        failure_diagnostics: str,
+    ) -> UUID:
+        """Record a failed collection: a `failed` run with no option rows.
+
+        Never writes option rows and never touches the last completed snapshot.
+        """
+        cursor = self._connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO collection_runs (snapshot_id, collected_at, status, "
+                "attempt_count, failure_diagnostics) "
+                "VALUES (%s, %s, 'failed', %s, %s)",
+                (
+                    snapshot_id,
+                    utc_datetime(collected_at, "collected_at"),
+                    attempt_count,
+                    failure_diagnostics,
+                ),
+            )
+            self._connection.commit()
+            return snapshot_id
         except BaseException:
             self._connection.rollback()
             raise

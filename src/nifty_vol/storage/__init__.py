@@ -10,6 +10,8 @@ from .models import (
     PricedSnapshotMeta,
     PricingRun,
     PricingSmile,
+    RawCollectionRun,
+    RawOptionObservation,
     SnapshotMeta,
 )
 from .repository import SnapshotRepository
@@ -24,6 +26,8 @@ __all__ = [
     "PricedSnapshotMeta",
     "PricingRun",
     "PricingSmile",
+    "RawCollectionRun",
+    "RawOptionObservation",
     "SnapshotMeta",
     "SnapshotRepository",
 ]
