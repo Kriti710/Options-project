@@ -118,8 +118,20 @@ def build_smile_chart(
     expiries: tuple[date, ...],
     reference_expiry: date,
     historical: Snapshot | None = None,
+    *,
+    option_types: tuple[str, ...] | None = None,
+    valuations: tuple[str, ...] | None = None,
 ) -> SmileChart:
     """Build chart-ready data and a near-forward ATM-IV reference."""
+    selected_option_types = set(option_types or ("call", "put"))
+    selected_valuations = None if valuations is None else set(valuations)
+
+    def is_selected(contract: Contract) -> bool:
+        valuation = contract.valuation or "unscored"
+        return contract.option_type in selected_option_types and (
+            selected_valuations is None or valuation in selected_valuations
+        )
+
     series: list[SmileSeries] = []
     for source, is_historical in ((snapshot, False), (historical, True)):
         if source is None:
@@ -132,6 +144,7 @@ def build_smile_chart(
                         for contract in source.contracts
                         if contract.expiry == expiry
                         and contract.option_type == option_type
+                        and is_selected(contract)
                         and contract.status == CALCULATED
                         and contract.implied_volatility is not None
                     ),
@@ -159,6 +172,7 @@ def build_smile_chart(
         contract
         for contract in snapshot.contracts
         if contract.expiry == reference_expiry
+        and is_selected(contract)
         and contract.status == CALCULATED
         and contract.implied_volatility is not None
     ]

@@ -5,7 +5,12 @@ from __future__ import annotations
 from app.presentation import SmileChart
 
 
-def plotly_smile_figure(chart: SmileChart):
+def plotly_smile_figure(
+    chart: SmileChart,
+    *,
+    fitted_curve: tuple[tuple[float, float], ...] = (),
+    valuation_points: tuple[tuple[float, float, str, str], ...] = (),
+):
     """Return a Plotly figure; import lazily so pure tests need no UI extras."""
     try:
         import plotly.graph_objects as go
@@ -29,7 +34,7 @@ def plotly_smile_figure(chart: SmileChart):
                 x=item.strikes,
                 y=[value * 100 for value in item.volatilities],
                 name=item.name,
-                mode="lines+markers",
+                mode="lines",
                 line={
                     "color": colors[item.option_type],
                     "dash": (
@@ -45,6 +50,54 @@ def plotly_smile_figure(chart: SmileChart):
                 hovertemplate=(
                     "Strike %{x:,.0f}<br>IV %{y:.2f}%"
                     "<extra>%{fullData.name}</extra>"
+                ),
+            )
+        )
+    valuation_colors = {
+        "Cheap": "#2563eb",
+        "Fair": "#64748b",
+        "Expensive": "#dc2626",
+        "Unscored": "#94a3b8",
+    }
+    option_symbols = {"call": "circle", "put": "diamond"}
+    for valuation in valuation_colors:
+        for option_type in option_symbols:
+            points = [
+                point
+                for point in valuation_points
+                if point[2] == valuation and point[3] == option_type
+            ]
+            if not points:
+                continue
+            figure.add_trace(
+                go.Scatter(
+                    x=[point[0] for point in points],
+                    y=[point[1] * 100 for point in points],
+                    name=f"{valuation} · {option_type.title()}",
+                    mode="markers",
+                    marker={
+                        "color": valuation_colors[valuation],
+                        "symbol": option_symbols[option_type],
+                        "size": 9,
+                        "line": {"color": "white", "width": 0.6},
+                    },
+                    hovertemplate=(
+                        "Strike %{x:,.0f}<br>IV %{y:.2f}%"
+                        f"<extra>{valuation} · {option_type.title()}</extra>"
+                    ),
+                )
+            )
+    if fitted_curve:
+        figure.add_trace(
+            go.Scatter(
+                x=[point[0] for point in fitted_curve],
+                y=[point[1] * 100 for point in fitted_curve],
+                name="Fitted smile · reference",
+                mode="lines",
+                line={"color": "#64748b", "dash": "dash", "width": 3},
+                hovertemplate=(
+                    "Strike %{x:,.0f}<br>Fitted IV %{y:.2f}%"
+                    "<extra>Reference smile</extra>"
                 ),
             )
         )
